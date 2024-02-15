@@ -1,7 +1,7 @@
 !mkdir -p ~/.kaggle
 !cp kaggle.json ~/.kaggle/
 
-!kaggle kernels output srikanthnayak01/eye-disease -p /content
+!kaggle kernels output akashmuneshwar/eye-disease -p /content
 
 !kaggle datasets download -d anirudhcv/labeled-optical-coherence-tomography-oct
 
@@ -25,7 +25,7 @@ train_dir = "/content/Dataset - train+val+test/train"
 test_dir = "/content/Dataset - train+val+test/test"
 val_dir = "/content/Dataset - train+val+test/val"
 
-#data preprocessing
+#preprocessing our data 
 train_datagen = ImageDataGenerator(
     rescale=1./255,
     rotation_range=18,
@@ -83,7 +83,7 @@ test_generator = test_datagen.flow_from_directory(
 
 
 
-# Load the ResNet-50 model without the top (classification) layer
+# Loading the ResNet-50 model without the top (fully connected) layer
 base_model = ResNet50(weights=None, include_top=False, input_shape=(224, 224, 1))
 
 # Add custom layers for grayscale images
@@ -93,11 +93,11 @@ x = Dense(1024, activation='relu')(x)
 x = Dropout(0.6)(x)
 predictions = Dense(4, activation='softmax')(x)
 
-# Create the final model
+# Creating our final model
 model = Model(inputs=base_model.input, outputs=predictions)
 
-# Freeze the pre-trained layers
-for layer in base_model.layers[:-20]:  # Freeze fewer layers
+# Freezing the pre-trained layers
+for layer in base_model.layers[:-20]:  # Freeze last 20 layers 
     layer.trainable = False
 
 
@@ -106,14 +106,13 @@ for layer in base_model.layers[:-20]:  # Freeze fewer layers
 model.compile(optimizer=Adam(learning_rate=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
 
 model.summary()
+
+#For early stoping 
 from tensorflow.keras.callbacks import EarlyStopping
 
 early_stopping = EarlyStopping(monitor='val_accuracy', patience=5)  # Early stopping
 
-from tensorflow.keras.callbacks import EarlyStopping
-
-early_stopping = EarlyStopping(monitor='val_accuracy', patience=5)  # Early stopping
-
+#Running epochs 
 model.fit_generator(
     train_generator,
     validation_data = validation_generator,
