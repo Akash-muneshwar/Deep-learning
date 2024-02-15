@@ -1,3 +1,5 @@
+#Code for using Streamlit
+
 with open ('app.py','w') as f:
   f.write("""
 import streamlit as st
@@ -52,3 +54,11 @@ if __name__ == "__main__":
 
 
     """)
+
+
+# For Running the streamlit 
+
+!wget -q -O - ipv4.icanhazip.com
+
+!streamlit run app.py & npx localtunnel --port 8501
+
