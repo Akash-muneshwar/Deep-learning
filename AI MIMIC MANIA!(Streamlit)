@@ -1,0 +1,154 @@
+import streamlit as st
+from PIL import Image
+import numpy as np
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.models import Model, load_model
+from sklearn.metrics.pairwise import cosine_similarity
+import tensorflow as tf
+from tensorflow.keras.layers import Layer
+
+# Define the CustomLayer class as it is required for loading the model
+class CustomLayer(Layer):
+    def _init_(self, units=32, **kwargs):
+        super(CustomLayer, self)._init_(**kwargs)
+        self.units = units
+
+    def build(self, input_shape):
+        self.kernel = self.add_weight(name='kernel',
+                                      shape=(input_shape[-1], self.units),
+                                      initializer='uniform',
+                                      trainable=True)
+
+    def call(self, inputs):
+        return tf.matmul(inputs, self.kernel)
+
+# Function to calculate image similarity
+def calculate_similarity(img_path1, img_path2, embedding_model):
+    # Preprocess both images
+    img1 = preprocess_image(img_path1)
+    img2 = preprocess_image(img_path2)
+
+    # Get embeddings for both images
+    embedding1 = embedding_model.predict(img1)
+    embedding2 = embedding_model.predict(img2)
+
+    # Calculate cosine similarity
+    similarity = cosine_similarity(embedding1, embedding2)
+    return similarity[0][0]
+
+# Function to load your model with custom layers
+def load_my_model():
+    # Path to your model
+    model_path = '/home/user/Desktop/mimic/best_model (1).keras'  # Update this path
+    model = load_model(model_path, custom_objects={'CustomLayer': CustomLayer})
+    # Specify the layer name you want embeddings from
+    layer_name = 'global_average_pooling2d'  # Update based on your model's layer
+    embedding_model = Model(inputs=model.input, outputs=model.get_layer(layer_name).output)
+    return embedding_model
+
+# Function to preprocess images
+def preprocess_image(image_path, target_size=(224, 224)):
+    img = Image.open(image_path).resize(target_size)
+    img_array = np.array(img).astype('float32')
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array /= 127.5
+    img_array -= 1.
+    return img_array
+
+# Loading the model
+embedding_model = load_my_model()
+
+
+
+# Streamlit app starts here
+st.markdown("""
+    <style>
+    .title {
+        
+        
+        padding: 10px;
+        text-align: center;
+        font-size: 60px;
+        font-family: bold;
+        text-align: center;
+        text-shadow:
+        2px 4px 6px rgba(0, 0, 0, 0.8),   /* Dark soft shadow for depth */
+        0 0 10px red,                     /* Red glow for a striking look */
+        0 0 5px white;
+    }
+    .threshold {
+        color: #ff6347;
+        font-size: 18px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom:20px
+    }
+    .similarity-score, .win-message, .error-message {
+        font-size: 20px;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    .win-message {
+        color: #2e8b57;
+        background-color:green;
+        border-radius: 20px;
+        padding: 10px;
+        text-align: center;
+        font-size: 2em;
+        color: #0F9D58;
+    }
+    .lost-message {
+        text-align: center;
+        font-size: 2em;
+        color: #D32F2F;
+        animation: shake 0.5s;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.markdown('<div class="title">AI&nbsp MIMIC&nbsp  MANIA 🤩</div>', unsafe_allow_html=True)
+threshold = 0.60 
+st.markdown(f'<div class="threshold">TARGET VALUE: {threshold*100:.2f}%</div>', unsafe_allow_html=True)
+# Navigation
+page = st.sidebar.radio("Go to", ("Upload Images", "View Results"))
+
+
+if page == "Upload Images":
+    col1, col2 = st.columns(2)
+    with col1:
+        target_image_file = st.file_uploader("Upload Target Image", type=["jpg", "jpeg", "png"], key="target")
+
+    with col2:
+        mimic_image_file = st.file_uploader("Upload Mimic Image", type=["jpg", "jpeg", "png"], key="mimic")
+
+    if target_image_file is not None:
+        # Convert the uploaded file to an image and display it
+        target_image = Image.open(target_image_file)
+        st.image(target_image, caption='Target Image',width=700)
+
+
+    if target_image_file and mimic_image_file:
+        st.session_state['target_image'] = target_image_file
+        st.session_state['mimic_image'] = mimic_image_file
+
+elif page == "View Results" and 'target_image' in st.session_state and 'mimic_image' in st.session_state:
+    target_image = Image.open(st.session_state['target_image']).resize((300, 300))
+    mimic_image = Image.open(st.session_state['mimic_image']).resize((300, 300))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(target_image, caption='Target Image')
+
+    with col2:
+        st.image(mimic_image, caption='Mimic Image')
+
+    similarity_score = calculate_similarity(st.session_state['target_image'], st.session_state['mimic_image'], embedding_model)
+    st.markdown(f"**Similarity Score:** {similarity_score*100:.2f}%")
+
+    
+    st.markdown(f'<div class="similarity-score">Similarity Score: {similarity_score*100:.2f}%</div>', unsafe_allow_html=True)
+    if similarity_score > threshold:
+        st.balloons()
+        st.markdown('<div class="win-message">🔥 Spectacular...! You Won..! 🥳</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="lost-message">Alas! Not quite there. Try another pair? 😔️ </div>', unsafe_allow_html=True)
