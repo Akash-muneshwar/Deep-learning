@@ -1,0 +1,87 @@
+import streamlit as st
+import tensorflow as tf
+import numpy as np
+import os
+from tensorflow.keras.models import load_model
+from PIL import Image
+import cv2
+import io
+
+# Load Model from Local Folder
+MODEL_PATH = "resnet50_cifar10.h5"  # Ensure your model is inside your VS Code project folder
+
+@st.cache_resource  # Cache model loading for efficiency
+def load_model_from_file():
+    return load_model(MODEL_PATH)
+
+model = load_model_from_file()
+
+# CIFAR-10 Class Names
+class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+
+# Function to Preprocess Image
+def preprocess_image(image_bytes):
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = img.resize((32, 32))  # Resize to model input size
+    img_array = tf.keras.preprocessing.image.img_to_array(img)  # FIXED ERROR
+    img_array = np.expand_dims(img_array, axis=0) / 255.0  # Normalize
+    return img_array, img
+
+# Function to Generate Grad-CAM Heatmap
+def generate_gradcam_heatmap(img_array, model, class_index, layer_name="conv5_block3_out"):
+    grad_model = tf.keras.models.Model(
+        inputs=model.input, 
+        outputs=[model.get_layer(layer_name).output, model.output]
+    )
+    
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(img_array)
+        loss = predictions[:, class_index]
+
+    grads = tape.gradient(loss, conv_outputs)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
+
+    heatmap = np.maximum(heatmap, 0) / (np.max(heatmap) + 1e-8)  # Normalize
+    return heatmap
+
+# Function to Overlay Heatmap on Image
+def overlay_heatmap_on_image(img, heatmap):
+    heatmap = cv2.resize(heatmap, (img.size[0], img.size[1]))
+    heatmap = np.uint8(255 * heatmap)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    superimposed_img = cv2.addWeighted(np.array(img), 0.6, heatmap, 0.4, 0)
+    return superimposed_img
+
+# Streamlit UI
+st.title("🖼️ Image Classification with Grad-CAM")
+st.write("Upload an image to classify and visualize the activation heatmap.")
+
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    # Display Uploaded Image
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+
+    # Convert image to bytes for processing
+    image_bytes = uploaded_file.getvalue()
+
+    # Preprocess Image
+    img_array, img = preprocess_image(image_bytes)
+
+    # Predict
+    with st.spinner("🔄 Classifying... Please wait"):
+        predictions = model.predict(img_array)
+        predicted_class_index = np.argmax(predictions)
+        predicted_class = class_names[predicted_class_index]
+        confidence = np.max(predictions)
+
+        st.success(f"**Predicted Class:** {predicted_class} (Confidence: {confidence:.4f})")
+
+        # Generate Grad-CAM Heatmap
+        heatmap = generate_gradcam_heatmap(img_array, model, predicted_class_index)
+        heatmap_img = overlay_heatmap_on_image(img, heatmap)
+
+        # Display Heatmap
+        st.image(heatmap_img, caption="Grad-CAM Heatmap", use_column_width=True)
